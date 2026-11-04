@@ -1,0 +1,18 @@
+{
+  "verified_file_version": "3.0.5.15611",
+  "background_starting_profile": {
+    "method": "Automatic / Sonneveld-Visser",
+    "bending_factor": 2,
+    "granularity": 20,
+    "smoothed_input": true,
+    "rietveld_background": "Use available background",
+    "consistency_required": true,
+    "add_to_net_scan": "Nothing"
+  },
+  "fixed_computation_profile": {
+    "use_available_background": true,
+    "max_cycles": 100,
+    "profile_base_width": 12
+  },
+  "release_version": "0.1.0-alpha.1"
+}
