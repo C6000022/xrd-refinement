@@ -1,6 +1,6 @@
 # XRD Refinement Skill
 
-**v0.1.0-alpha.2 — experimental / 公开测试版**
+**v0.1.0-alpha.3 — experimental / 公开测试版**
 
 **仅适用于 HighScore Plus。** 已在作者本机的 HighScore Plus **3.0.5（完整文件版本 3.0.5.15611）** 环境验证过原生精修运行；其他版本的兼容性尚未验证。
 
@@ -55,6 +55,8 @@ This alpha still depends on the supported HighScore version's registry preset fo
 
 Close or finish the existing HighScore session before a background job; the launcher does not terminate another session. Windows/agent permissions must allow local process execution and temporary current-user registry presets. Only temporary presets created by the job are removed after normal completion; a timed-out process must be inspected before dispatching more jobs or deleting its temporary input.
 
+Native solving runs locally: the launcher starts HighScore Plus with `/Q /B` and a hidden window, waits for completion, and checks the solver log and saved HPF. Codex selects each stage's parameters, inspects results and decides the next stage. This requires an active Codex task and the configured local software; hidden-window launch does not establish that every vendor dialog is suppressed.
+
 ## Use
 
 In Codex, say for example:
@@ -71,7 +73,7 @@ Internal-standard percentages use:
 
 An addition percentage relative to the original sample is a different basis and must be converted.
 
-Output:
+Output when the original file path is verified:
 
 ```text
 C:\XRD\sample.HPF
@@ -79,6 +81,10 @@ C:\XRD\Refined\sample_refined.HPF
 ```
 
 `Refined` is created when needed. Existing originals and result files are not overwritten. Numerically unconverged candidates use `_candidate_unconverged.HPF`; duplicate result names receive a timestamp/number. Reports, tables and plots are not generated unless requested.
+
+**Dragged/uploaded files:** first establish whether the accessible HPF is the original file or an attachment copy. With a verified original path, use its neighboring `Refined`. If only an attachment copy or an unknown source location is available, Codex must ask for an absolute, persistent final result folder **before preparation or solving**, and save directly to that confirmed folder. It must not infer the original folder from the filename or silently leave final results beside an attachment cache. The helper requires `input_location` for formal stages and, for attachment/unknown inputs, a source-bound `output_confirmation`; see [SKILL.md](SKILL.md). A later `--output` cannot override the selected folder without renewed confirmation. Completion messages provide a clickable absolute result path.
+
+拖入文件时先核实来源：能确认原始路径，就保存到其下的Refined；只有附件副本或无法确认原始目录时，精修前先问最终保存文件夹，按操作人确认的完整路径直接保存。临时目录在交付完成、HighScore退出后由Codex按技能说明清理；异常或超时可能保留用于排查，脚本尚未提供统一自动清理函数。
 
 ## Mandatory operator confirmation before refinement
 

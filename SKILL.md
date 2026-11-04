@@ -1,17 +1,21 @@
 ---
 name: xrd-refinement
-description: 仅用于HighScore Plus的XRD/Rietveld精修，已在本机3.0.5（3.0.5.15611）环境验证运行，其他版本兼容性未验证。用户要求“xrd精修”“XRD精修”“Rietveld精修”或精修HighScore Plus工程时使用。正式精修前必须向操作人确认本次背景方式与参数、目标晶相、定量方式及质量基准、内标种类与加入量、计算设置和CIF完整性；按本次确认锁定设置后自主精修。结果仅在源HPF文件夹的Refined子文件夹保存，默认在聊天汇报。
+description: 仅用于HighScore Plus的XRD/Rietveld精修，已在本机3.0.5（3.0.5.15611）环境验证运行，其他版本兼容性未验证。用户要求“xrd精修”“XRD精修”“Rietveld精修”或精修HighScore Plus工程时使用。正式精修前确认背景参数、定量目标与质量基准、内标、计算设置及CIF完整性。原始路径明确时默认保存到其Refined子文件夹；附件副本或来源不明时先询问持久输出目录，结果在聊天汇报。
 ---
 
 # XRD精修
 
-公开测试版0.1.0-alpha.2，Windows / HighScore Plus文件版本3.0.5.15611。HPF解析仅支持已核验的部分布局；合成自检不证明原生求解或科学定量正确。首次使用先读仓库README和[原生运行与核查](references/highscore-workflow.md)。
+公开测试版0.1.0-alpha.3，Windows / HighScore Plus文件版本3.0.5.15611。HPF解析仅支持已核验的部分布局；合成自检不证明原生求解或科学定量正确。首次使用先读仓库README和[原生运行与核查](references/highscore-workflow.md)。
 
 ## 先检查，再向操作人确认本次设置
 
 只读检查用户提供的工程，读取真实扫描、辐射/Kα信息、扫描范围和步长、晶相列表、背景、计算设置与内标标记。保持原始数据，不能复制其他样品的扫描或优化数值。材料可为OPC、AAS或其他材料，不预设晶相数量、名称或扫描条件。
 
-正式精修前，将实际晶相列表与下列问题一次呈现给操作人；只问尚未明确的信息。已经在本次任务明确给出的信息可复用，不逐轮重复确认；工程已有值、建议值和历史任务不能代替本次答复。确认未完成时，只能检查或保存转换临时副本，不能准备精修参数、估计背景或运行求解。
+先核实输入来源并记录input_location的kind、evidence和source_sha256。kind=original只用于操作人给出的原始绝对路径，或附件元数据能证实、且可访问的原始路径；使用副本对应的原文件时还要核对文件哈希一致。不能仅凭文件名猜原始目录，也不能把附件缓存或阶段副本标作已核实原文件。
+
+原始路径明确时默认保存到原HPF旁的Refined，开始前告知具体目录。只有附件副本时用kind=attachment_copy，来源无法判断时用kind=unknown；两者都必须先询问操作人最终结果文件夹的完整绝对路径，把真实答复写入output_confirmation。问清的是最终目录，按其原样保存，不再自动追加一层Refined。目录应持久、可写，位于附件缓存和本次精修临时目录之外。确认前可检查输入，但不能准备精修参数或运行求解。批量文件分别明确来源及输出位置；同一任务中复用已确认目录。
+
+正式精修前，将实际晶相列表与下列问题一次呈现给操作人，并合并尚未明确的保存位置问题；只问尚未明确的信息。已经在本次任务明确给出的信息可复用，不逐轮重复确认；工程已有值、建议值和历史任务不能代替本次答复。确认未完成时，只能检查或保存转换临时副本，不能准备精修参数、估计背景或运行求解。
 
 1. **背景如何处理？** 选择重新估计Automatic / Sonneveld–Visser背景，还是沿用工程中已接受的背景。重新估计时明确Bending factor、Granularity、Use smoothed input data。2/20/开启平滑仅是可展示的建议，操作人明确接受后才使用；不得自动填入。平滑只用于估计背景。默认支持Accept后把背景纳入模型，保留观察计数、不执行Subtract、Add to net scan=Nothing，并明确告诉操作人。其他算法、背景多项式、实际Subtract或改变观察计数不在此辅助脚本范围内，需要先核实原生接口与统计权重，不静默替换成已支持的方式。
 2. **要定量什么？** 确认目标晶相（或全部样品晶相）、晶相相对定量还是内标定量，以及是否要求非晶/未定量余量。目标相清单只是报告范围，不用它删除其他有证据存在的相或仅用几个目标相归一化。目标相质量百分比是计算结果，不让操作人预填期望含量。
@@ -41,6 +45,11 @@ scripts/refine.py提供inspect、normalize、prepare、solve、compare、deliver
     "user_statement": "本次操作人确认CIF完整性的实际原话",
     "projects": {"源HPF绝对路径": "当前SHA256"}
   },
+  "input_location": {
+    "kind": "original",
+    "evidence": "操作人提供的原始绝对路径或可核实的原始路径元数据",
+    "source_sha256": "当前SHA256"
+  },
   "settings_confirmation": {
     "confirmed": true,
     "user_statement": "本次操作人确认背景与计算设置的实际原话",
@@ -69,6 +78,8 @@ scripts/refine.py提供inspect、normalize、prepare、solve、compare、deliver
 }
 ~~~
 
+只有附件副本或来源不明时，input_location.kind改为attachment_copy或unknown，并加入output_confirmation={confirmed:true,user_statement:"本次操作人选择最终保存目录的实际原话",source_sha256:"当前SHA256",directory:"最终目录绝对路径"}。--origin仍指向实际可读的源HPF，不能虚构一个原始路径。已核实原文件如需改保存位置，同样要求output_confirmation。--output只能与已选定目录一致；正式阶段都会返回delivery_directory，开始求解前核对它。四类科学确认之外，所有正式阶段都必须带来源记录，附件/未知来源还必须带输出确认。
+
 已有背景用background={mode:available,handling:model_background}，不带自动背景参数。明确无内标用added=false、weights=[]。相对定量用mode=relative_crystalline、report_basis=crystalline_only、include_unquantified_fraction=false；内标法基准可为original_sample或mixed_sample。目标相列表必须能映射到实际工程。其他定量方法没有被本辅助脚本实现，不能伪装成内标法。
 
 prepare把本次计算值写入临时副本，按确认设置内标并清除旧内标标记；计划中的冲突设置会被拒绝。refine省略时保留原自由度，显式给出时表示本轮完整自由参数集合。edits只修改明确识别的参数、值和边界，不改变观察数据、辐射或结构库存。
@@ -87,4 +98,4 @@ solve的背景动作由settings_confirmation决定：automatic传入确认的参
 
 核对原生History中的实际背景动作；图形缓存未经验证不能当作本轮计算曲线。内标不能消除背景误差，未定量余量不能全部称为C–S–H。模型问题、标准纯度和报告基准等限制直接在聊天说明。
 
-保留原始HPF/RAW/TXT/CIF。阶段副本和日志仅用本次系统临时目录；成功交付且进程退出后清理，超时先保留仍被占用的副本并停止新派发。最终只在各源HPF文件夹的Refined子文件夹另存<原名>_refined.HPF；重名添加时间/编号，不覆盖。数值未稳定时标为_candidate_unconverged.HPF。未经要求不生成报告、CSV/Excel、JSON清单、图片或其他结果目录。
+保留原始HPF/RAW/TXT/CIF。阶段副本和日志仅用本次系统临时目录；成功交付且进程退出后由Codex清理，超时先保留仍被占用的副本并停止新派发，辅助脚本没有统一自动清理函数。最终按上面的来源规则，在原HPF旁的Refined或操作人确认的持久目录另存<原名>_refined.HPF；重名添加时间/编号，不覆盖。数值未稳定时标为_candidate_unconverged.HPF。聊天给出完整绝对路径的可点击链接，并说明稳定性与科学限制。未经要求不生成报告、CSV/Excel、JSON清单、图片或其他结果目录。

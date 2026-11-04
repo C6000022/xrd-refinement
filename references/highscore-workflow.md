@@ -10,6 +10,8 @@ Ask for this task's background mode and parameters, target phases, quantificatio
 
 Preparation writes only temporary copies, applies the confirmed standard and clears stale standard designations. Solve/comparison/delivery check the same standard and confirmed computation settings. Four explicit confirmation records are bound to the original source hash; missing operator settings or quantitative scope block formal refinement. Original files remain unchanged.
 
+Record input provenance as input_location with kind=original, attachment_copy or unknown, evidence and source_sha256. A provided path or verified original metadata is needed for original; filenames alone are not evidence. Verified originals default to their neighboring Refined. Attachment/unknown inputs require the operator's explicit absolute final directory in output_confirmation before preparation or solving. This confirmed directory is used directly; --output must match it. Keep final results outside attachment caches and the refinement job's temporary folders. Return the full absolute result path as a clickable chat link.
+
 ## Runtime configuration
 
 Set XRD_HIGHSCORE_EXE and XRD_BATCH_TEMPLATE; automatic-background mode also requires XRD_BACKGROUND_TEMPLATE. Alternatively pass the corresponding CLI flags. PowerShell is detected on PATH unless XRD_POWERSHELL / --powershell is supplied. See the repository README for creating native presets through HighScore. No private registry export is included.
@@ -26,7 +28,7 @@ The adapter discovers the embedded scan and typed parameter records and preserve
 
 Some HPF files have a different layout despite the same top-level version number. Native save-only normalization may help but is not guaranteed. Do not relax assertions to make a file parse. An earlier real-file regression failed for this reason; this release records the limitation rather than claiming a fix.
 
-The native saved filename can depend on the anchor scan. Detect the unique saved output in the isolated temporary directory rather than assuming a filename. On successful reviewed delivery, save only the final/candidate HPF in the original folder's Refined subfolder and clean up this job's temporary directory after the native process has exited. On timeout, retain the live process's temporary files and stop new dispatches.
+The native saved filename can depend on the anchor scan. Detect the unique saved output in the isolated temporary directory rather than assuming a filename. On successful reviewed delivery, save only the final/candidate HPF in the selected destination: neighboring Refined for a verified original, or the operator-confirmed persistent folder for an attachment/unknown source. Codex then cleans up this job's temporary directory after the native process has exited; the helper has no unified automatic cleanup function. On timeout, retain the live process's temporary files and stop new dispatches.
 
 ## Scientific review
 

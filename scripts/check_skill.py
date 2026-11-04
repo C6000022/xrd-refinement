@@ -92,6 +92,7 @@ def check_models(root,synthetic_only=False):
   for i in range(first.point_count):struct.pack_into("<d",mismatched,first.scan_offset+i*66+28,100.0)
   HPF(raw=mismatched).save(source)
   data={"confirmation":{"confirmed":True,"user_statement":"synthetic local test; no solver executes","projects":{str(source):tools.sha(source)}},
+        "input_location":{"kind":"original","evidence":"synthetic test explicitly supplies its source path","source_sha256":tools.sha(source)},
         "standard_confirmation":{"confirmed":True,"user_statement":"synthetic test: no standard added", "source_sha256":tools.sha(source),"added":False,"weights":[]},
         "settings_confirmation":{"confirmed":True,"user_statement":"synthetic confirmation of background and computation", "source_sha256":tools.sha(source),
           "background":{"mode":"automatic","handling":"model_background","bending_factor":2,"granularity":20,"smoothed_input":True},
@@ -101,9 +102,30 @@ def check_models(root,synthetic_only=False):
         "plan":{"reason":"isolated test of arbitrary parameter selection","refine":["Zero Shift [°2Theta]"],"use_available_background":True}}
   args=SimpleNamespace(action="prepare",input=str(source),origin=None)
   fail(lambda:tools.action(args,{}))
-  for record in ("standard_confirmation","settings_confirmation","quantification_confirmation"):
+  for record in ("standard_confirmation","settings_confirmation","quantification_confirmation","input_location"):
    missing={k:v for k,v in data.items() if k!=record}
    fail(lambda:tools.action(args,missing))
+  for field,value in (("kind","guessed"),("evidence",""),("source_sha256","wrong source")):
+   invalid=json.loads(json.dumps(data));invalid["input_location"][field]=value
+   fail(lambda:tools.action(args,invalid))
+  attachment=json.loads(json.dumps(data))
+  for kind in ("attachment_copy","unknown"):
+   attachment["input_location"]["kind"]=kind
+   with patch.object(tools.tempfile,"mkdtemp") as staged:
+    fail(lambda:tools.action(args,attachment));assert staged.call_count==0
+  chosen=temp/"精修结果 文件夹"
+  attachment["output_confirmation"]={"confirmed":True,"user_statement":"synthetic operator chose this result folder","source_sha256":tools.sha(source),"directory":str(chosen)}
+  for field,value in (("confirmed",False),("user_statement",""),("source_sha256","wrong source"),("directory","relative-folder"),("directory","")):
+   invalid=json.loads(json.dumps(attachment));invalid["output_confirmation"][field]=value
+   fail(lambda:tools.action(args,invalid))
+  for kind in ("attachment_copy","unknown"):
+   attachment["input_location"]["kind"]=kind
+   assert tools.delivery_directory(attachment,source)==chosen
+  assert not chosen.exists()
+  assert tools.delivery_directory(data,source)==source.parent/"Refined"
+  fail(lambda:tools.delivery_directory(data,source,chosen))
+  fail(lambda:tools.delivery_directory(attachment,source,temp/"different destination"))
+  assert tools.delivery_directory(attachment,source,chosen)==chosen
   for record in ("settings_confirmation","quantification_confirmation"):
    for field,value in (("confirmed",False),("user_statement",""),("source_sha256","wrong source")):
     invalid=json.loads(json.dumps(data));invalid[record][field]=value
@@ -152,6 +174,9 @@ def check_models(root,synthetic_only=False):
   work=Path(prepared["work_directory"])
   assert HPF(prepared["prepared_input"]).independent_count()==1
   prepared_doc=HPF(prepared["prepared_input"])
+  assert prepared["delivery_directory"]==str(source.parent/"Refined")
+  invalid=json.loads(json.dumps(attachment));invalid["output_confirmation"]["directory"]=str(work/"Refined")
+  fail(lambda:tools.action(args,invalid))
   assert prepared_doc.scan_sha256()==first.scan_sha256()
   tools.verify_base(prepared_doc,data)
   tools.verify_standard(data,prepared_doc)
@@ -215,6 +240,12 @@ def check_models(root,synthetic_only=False):
   assert {p.relative_to(temp) for p in temp.rglob("*")}-before=={Path("Refined"),a.relative_to(temp),b.relative_to(temp)}
   assert all(p.suffix.lower()==".hpf" for p in temp.rglob("*") if p.is_file())
   assert a not in tools.inputs(temp) and b not in tools.inputs(temp)
+  delivery_args=SimpleNamespace(action="deliver",input=str(other),origin=str(source),previous=str(other),output=None)
+  with patch.object(tools,"stability",return_value={"stable":False,"reason":"synthetic output-path check only"}):
+   attached_result=tools.action(delivery_args,attachment)
+  attached_path=Path(attached_result["file"])
+  assert attached_path.parent==chosen and "_candidate_unconverged" in attached_path.stem
+  assert tools.sha(attached_path)==tools.sha(other) and attached_result["delivery_directory"]==str(chosen)
   # Clean only the exact temporary stage created by this test, after verifying scope.
   assert work.is_relative_to(Path(tempfile.gettempdir()).resolve()) and work.name.startswith("codex_xrd_step_")
   import shutil;shutil.rmtree(work)
@@ -229,6 +260,7 @@ def check_models(root,synthetic_only=False):
                    "refined_subfolder_HPF_only_and_no_overwrite":True,"no_native_solver_launched":True,
                    "originals_unchanged":True,"background_suggestion_requires_confirmation":"2/20/smoothed",
                    "confirmed_base_preparation_and_conflict_rejection":True,"operator_confirmed_custom_background_and_computation":True,"available_background_preserved":True,"quantification_gate":True,
+                   "attachment_destination_gate_before_preparation":True,"verified_original_uses_Refined":True,"confirmed_attachment_delivery_and_no_job_temp_output":True,
                    "different_background_not_same_model_stability":True},ensure_ascii=False,indent=2))
 def main():
  p=argparse.ArgumentParser(description=__doc__)

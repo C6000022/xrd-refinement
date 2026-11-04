@@ -84,6 +84,27 @@ def verify_quantification(data,doc):
   raise ValueError("A requested target phase is absent; resolve the phase model and reconfirm CIF completeness.")
 
 def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+def delivery_directory(data,origin,output=None):
+ location=data.get("input_location",{});digest=sha(origin)
+ if not isinstance(location,dict) or location.get("kind") not in ("original","attachment_copy","unknown") or location.get("source_sha256")!=digest or not isinstance(location.get("evidence"),str) or not location["evidence"].strip():
+  raise ValueError("Record whether the source is a verified original path or an attachment/unknown copy, with evidence and its source hash.")
+ if location["kind"]=="original" and "output_confirmation" not in data:
+  directory=origin.parent/"Refined"
+ else:
+  record=confirmed_record(data,"output_confirmation",digest)
+  supplied=record.get("directory")
+  if not isinstance(supplied,str) or not supplied.strip() or not Path(supplied).is_absolute():
+   raise ValueError("Ask the operator for an absolute, persistent result directory before refinement.")
+  directory=Path(supplied).resolve()
+ if output and Path(output).resolve()!=directory:
+  raise ValueError("--output differs from the selected result directory; reconfirm a changed destination.")
+ temporary=Path(tempfile.gettempdir()).resolve()
+ if directory.is_relative_to(temporary):
+  relative=directory.relative_to(temporary)
+  if relative.parts and relative.parts[0].startswith("codex_xrd_step_"):
+   raise ValueError("Final results must be outside the refinement job's temporary directories.")
+ return directory
 def request(path):
  if not path: return {}
  return json.loads(sys.stdin.read()) if path=="-" else json.loads(Path(path).read_text(encoding="utf-8-sig"))
@@ -210,7 +231,9 @@ def action(args,data):
    result.append(info)
   return result
  source=Path(args.input).resolve();origin=Path(args.origin or source).resolve()
- record=confirm(data,origin);digest=sha(origin);doc=HPF(source);original=identity(doc,origin,data)
+ record=confirm(data,origin);digest=sha(origin)
+ output_root=delivery_directory(data,origin,getattr(args,"output",None))
+ doc=HPF(source);original=identity(doc,origin,data)
  verify_quantification(data,doc)
  background=confirmed_background(data)
  if background["mode"]=="available" and not doc.info()["background_available"]:
@@ -271,13 +294,14 @@ def action(args,data):
   verify_standard(data,previous);verify_standard(data,doc)
   checked=stability(previous,doc,data)
   if sha(origin)!=digest:raise ValueError("Original source changed before delivery.")
-  target=deliver(source,origin,checked["stable"],args.output)
+  target=deliver(source,origin,checked["stable"],output_root)
   result={"file":str(target),"stability":checked,"info":doc.info(),"original_unchanged":True,
           "phase_model_validated":False,"documents_generated":False}
  else:raise ValueError(args.action)
  if sha(origin)!=digest:raise ValueError("Original source changed during this action.")
  result["confirmed_settings"]=data["settings_confirmation"]
  result["quantification_scope"]=data["quantification_confirmation"]
+ result["delivery_directory"]=str(output_root)
  return result
 
 def main():
@@ -287,7 +311,7 @@ def main():
  p.add_argument("--request",help="JSON containing confirmation and, for preparation, a plan; - reads stdin.")
  p.add_argument("--parameters",action="store_true");p.add_argument("--filter");p.add_argument("--scan-file")
  p.add_argument("--estimate-background",action="store_true");p.add_argument("--previous")
- p.add_argument("--output",help="Explicit user destination override; default delivery is Refined under the original HPF folder.")
+ p.add_argument("--output",help="Must match the selected destination; attachment/unknown inputs require output_confirmation before preparation.")
  p.add_argument("--powershell",default=os.environ.get("XRD_POWERSHELL", ""),help="PowerShell executable; auto-detected when omitted.")
  p.add_argument("--highscore",default=os.environ.get("XRD_HIGHSCORE_EXE", ""),help="Installed HighScorePlus.exe path.")
  p.add_argument("--batch-template",default=os.environ.get("XRD_BATCH_TEMPLATE", ""),help="Name of a native user batch containing a background action.")
