@@ -1,6 +1,6 @@
 ---
 name: xrd-refinement
-description: 用户要求“xrd精修”“XRD精修”“Rietveld精修”或精修HighScore工程时使用。正式精修前必须向操作人确认本次背景方式与参数、目标晶相、定量方式及质量基准、内标种类与加入量、计算设置和CIF完整性；按本次确认锁定设置后自主精修。结果仅在源HPF文件夹的Refined子文件夹保存，默认在聊天汇报。
+description: 仅用于HighScore Plus的XRD/Rietveld精修，已在本机3.0.5（3.0.5.15611）环境验证运行，其他版本兼容性未验证。用户要求“xrd精修”“XRD精修”“Rietveld精修”或精修HighScore Plus工程时使用。正式精修前必须向操作人确认本次背景方式与参数、目标晶相、定量方式及质量基准、内标种类与加入量、计算设置和CIF完整性；按本次确认锁定设置后自主精修。结果仅在源HPF文件夹的Refined子文件夹保存，默认在聊天汇报。
 ---
 
 # XRD精修

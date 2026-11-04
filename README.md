@@ -2,6 +2,10 @@
 
 **v0.1.0-alpha.2 — experimental / 公开测试版**
 
+**仅适用于 HighScore Plus。** 已在作者本机的 HighScore Plus **3.0.5（完整文件版本 3.0.5.15611）** 环境验证过原生精修运行；其他版本的兼容性尚未验证。
+
+**For HighScore Plus only.** Native refinement has been tested in the author's local **v3.0.5 environment (file version 3.0.5.15611)**. Compatibility with other versions has not been verified.
+
 A Codex skill for supervised, local Rietveld refinement of existing HighScore Plus projects. It confirms the operator's background settings, target phases, quantification method and mass basis, internal standard and CIF completeness, then locks those settings for the task, chooses refinement parameters from the actual model, and saves HPF results under `Refined/`.
 
 用于在Windows上调用HighScore进行XRD精修。使用者提供已经包含实测扫描与拟合晶体结构的HPF；正式操作前必须向操作人确认背景方式与参数、目标晶相、定量方式及报告质量基准、内标种类与加入量、计算设置及CIF完整性；不能直接套用作者个人参数。结果默认仅交付HPF，结论在聊天中汇报。
