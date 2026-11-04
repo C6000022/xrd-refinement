@@ -6,43 +6,82 @@ from model_legacy import HPF
 SKILL=Path(__file__).resolve().parents[1]
 PROFILE=json.loads((SKILL/"references/local-profile.json").read_text(encoding="utf-8"))
 
-def native_command(args):
+def native_command(args,estimate_background=False):
  powershell=args.powershell or shutil.which("pwsh") or shutil.which("powershell")
  highscore=args.highscore
  batch=getattr(args,"batch_template","")
  background=getattr(args,"background_template","")
  if not powershell or not highscore or not batch:
   raise ValueError("Set --highscore and --batch-template (or XRD_HIGHSCORE_EXE / XRD_BATCH_TEMPLATE), and install PowerShell.")
- if args.action=="solve" and not background:
+ if args.action=="solve" and estimate_background and not background:
   raise ValueError("Set --background-template or XRD_BACKGROUND_TEMPLATE to a native preset verified in HighScore.")
  command=[powershell,"-NoProfile","-File",str(SKILL/"scripts/Run_Native.ps1"),
           "-HighScoreExe",highscore,"-BatchTemplateName",batch]
  if background:command += ["-BackgroundTemplateName",background]
  return command
 
-def fixed_plan(plan):
- fixed=PROFILE["fixed_computation_profile"]
+def confirmed_record(data,key,digest):
+ record=data.get(key,{})
+ if not isinstance(record,dict) or record.get("confirmed") is not True or not isinstance(record.get("user_statement"),str) or not record["user_statement"].strip() or record.get("source_sha256")!=digest:
+  raise ValueError("Explicit operator confirmation for this source is required: "+key)
+ return record
+
+def validate_settings(record):
+ bg=record.get("background",{});calculation=record.get("computation",{})
+ if not isinstance(bg,dict) or bg.get("mode") not in ("automatic","available") or bg.get("handling")!="model_background":
+  raise ValueError("Confirm automatic or available background and preservation of original observed counts; actual subtraction needs a separately validated workflow.")
+ if bg["mode"]=="automatic":
+  if set(bg)!={"mode","handling","bending_factor","granularity","smoothed_input"}:
+   raise ValueError("Automatic-background settings contain missing or unsupported fields.")
+  bending=bg.get("bending_factor");granularity=bg.get("granularity");smooth=bg.get("smoothed_input")
+  if type(bending) is not int or not 0<=bending<=100 or type(granularity) is not int or not 1<=granularity<=10000 or type(smooth) is not bool:
+   raise ValueError("Confirm explicit automatic-background bending factor, granularity and smoothed-input choice.")
+ elif set(bg)-{"mode","handling"}:
+  raise ValueError("Available-background mode preserves the accepted curve; remove automatic-estimation parameters.")
+ if not isinstance(calculation,dict) or set(calculation)!={"max_cycles","profile_base_width"}:
+  raise ValueError("Confirm only the supported computation settings: maximum cycles and profile base width.")
+ cycles=calculation.get("max_cycles");width=calculation.get("profile_base_width")
+ if type(cycles) is not int or not 1<=cycles<=999 or type(width) not in (int,float) or not math.isfinite(width) or not 1<=width<=100:
+  raise ValueError("Confirm maximum cycles (1..999) and profile base width (1..100 FWHM).")
+
+def validate_quantification(record,standard):
+ mode=record.get("mode");basis=record.get("report_basis");targets=record.get("target_phases")
+ if not isinstance(targets,list) or not targets or any(not isinstance(p,str) or not p.strip() for p in targets) or len(set(targets))!=len(targets):
+  raise ValueError("Confirm actual target phase names, quantification mode and reporting mass basis.")
+ if type(record.get("include_unquantified_fraction")) is not bool:
+  raise ValueError("Confirm whether an unquantified/amorphous fraction is part of the requested result.")
+ if mode=="relative_crystalline":
+  if basis!="crystalline_only" or record["include_unquantified_fraction"]:
+   raise ValueError("Relative crystalline quantification uses crystalline-only normalization and cannot supply absolute amorphous content.")
+ elif mode=="internal_standard":
+  if standard["added"] is not True or basis not in ("original_sample","mixed_sample"):
+   raise ValueError("Internal-standard quantification requires a confirmed added standard and original-sample or mixed-sample basis.")
+ else:raise ValueError("Unsupported quantification method; do not silently substitute another method.")
+
+def confirmed_plan(plan,data):
+ fixed={"use_available_background":True,**data["settings_confirmation"]["computation"]}
  for key,value in fixed.items():
   if key in plan and (plan[key]!=value or (type(value) is bool and type(plan[key]) is not bool)):
-   raise ValueError("The user requires consistent base settings: "+key+"="+str(value))
+   raise ValueError("Plan conflicts with this task's confirmed setting: "+key)
  return {**plan,**fixed}
 
-def fixed_background(data):
- fixed=PROFILE["background_starting_profile"]
- supplied=data.get("background",{})
- if not isinstance(supplied,dict):raise ValueError("Background settings must be an object.")
- for key in ("bending_factor","granularity","smoothed_input"):
-  if key in supplied and (supplied[key]!=fixed[key] or type(supplied[key]) is not type(fixed[key])):
-   raise ValueError("The user requires Automatic background, bending 2, granularity 20 and smoothed input.")
- return fixed
+def confirmed_background(data):
+ bg=data["settings_confirmation"]["background"]
+ if "background" in data and data["background"]!=bg:
+  raise ValueError("Background request differs from the operator-confirmed settings.")
+ return bg
 
-def verify_base(doc):
+def verify_base(doc,data):
  info=doc.info()
- expected={"mode_code":1,"background_method_code":1,"max_cycles":100,"profile_base_width":12}
+ expected={"mode_code":1,"background_method_code":1,**data["settings_confirmation"]["computation"]}
  if any(info[key]!=value for key,value in expected.items()):
-  raise ValueError("Prepare the consistent semi-automatic / available-background / 100-cycle / 12-FWHM stage first.")
+  raise ValueError("Prepare the stage using this task's confirmed computation settings.")
  if any(p["free"] and (re.fullmatch(r"Coefficient \d+",p["name"]) or "background" in p["name"].lower()) for p in doc.parameters):
-  raise ValueError("Background parameters must remain fixed when using the accepted background.")
+  raise ValueError("Background coefficients must remain fixed for an accepted background curve.")
+
+def verify_quantification(data,doc):
+ if not set(data["quantification_confirmation"]["target_phases"]).issubset(doc.phase_keys):
+  raise ValueError("A requested target phase is absent; resolve the phase model and reconfirm CIF completeness.")
 
 def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def request(path):
@@ -82,6 +121,11 @@ def confirm(data,origin):
   phases.append(weight["phase"]);total+=value
  if len(set(phases))!=len(phases) or total>=100:
   raise ValueError("Duplicate standards or invalid total standard percentage.")
+ settings=confirmed_record(data,"settings_confirmation",digest)
+ validate_settings(settings)
+ confirmed_background(data)
+ quantification=confirmed_record(data,"quantification_confirmation",digest)
+ validate_quantification(quantification,std)
  return record
 
 def standard_settings(data,doc):
@@ -107,8 +151,8 @@ def identity(stage,origin,data=None):
  if stage.scan_sha256()!=original.scan_sha256() or stage.phase_keys!=original.phase_keys or stage.wavelength!=original.wavelength:
   raise ValueError("The stage scan, crystal inventory or radiation differs from the confirmed source.")
  return original
-def stability(previous,current):
- verify_base(previous);verify_base(current)
+def stability(previous,current,data):
+ verify_base(previous,data);verify_base(current,data)
  import numpy as np
  if previous.scan_sha256()!=current.scan_sha256() or not np.allclose(previous.scan()[:,2],current.scan()[:,2],rtol=0,atol=1e-9):
   return {"stable":False,"reason":"Observed data or accepted background differs between comparisons."}
@@ -167,38 +211,49 @@ def action(args,data):
   return result
  source=Path(args.input).resolve();origin=Path(args.origin or source).resolve()
  record=confirm(data,origin);digest=sha(origin);doc=HPF(source);original=identity(doc,origin,data)
+ verify_quantification(data,doc)
+ background=confirmed_background(data)
+ if background["mode"]=="available" and not doc.info()["background_available"]:
+  raise ValueError("No available background curve was detected; ask the operator before estimating one.")
  if args.action=="prepare":
   plan=data.get("plan")
   if not isinstance(plan,dict) or not plan.get("reason","").strip():
    raise ValueError("Supply a plan with its diagnostic reason; Codex chooses actual parameters.")
   if "standard_weights" in plan and plan["standard_weights"]!=data["standard_confirmation"]["weights"]:
    raise ValueError("The plan standard weights differ from the user's current confirmation.")
-  plan=fixed_plan(plan)
+  plan=confirmed_plan(plan,data)
   plan["standard_weights"]=standard_settings(data,doc)
   prepared=doc.apply(plan)
-  verify_base(prepared)
+  verify_base(prepared,data)
   verify_standard(data,prepared)
   directory=Path(tempfile.mkdtemp(prefix="codex_xrd_step_"))
   path=directory/"prepared_input.HPF";prepared.save(path)
   result={"prepared_input":str(path),"work_directory":str(directory),"original":str(origin),
           "origin_sha256":digest,"reason":plan["reason"],"parameters":prepared.info(),
-          "background_should_be_estimated":True}
+          "background_should_be_estimated":background["mode"]=="automatic"}
  elif args.action=="solve":
   verify_standard(data,doc)
-  verify_base(doc)
-  background=fixed_background(data)
+  verify_base(doc,data)
   directory=source.parent
   if not directory.name.startswith("codex_xrd_step_") or not directory.is_relative_to(Path(tempfile.gettempdir()).resolve()):
    raise ValueError("Native solver must operate on a prepared copy in the system temporary directory.")
-  cmd=native_command(args)+["-InputFile",str(source),"-ExpectedParameters",str(doc.independent_count())]
-  cmd+=["-EstimateBackground","-BackgroundBendingFactor",str(background["bending_factor"]),
-        "-BackgroundGranularity",str(background["granularity"])]
+  estimate=background["mode"]=="automatic"
+  if not estimate and getattr(args,"estimate_background",False):
+   raise ValueError("--estimate-background conflicts with the confirmed available-background mode.")
+  cmd=native_command(args,estimate_background=estimate)+["-InputFile",str(source),"-ExpectedParameters",str(doc.independent_count())]
+  if estimate:
+   cmd += ["-EstimateBackground","-BackgroundBendingFactor",str(background["bending_factor"]),"-BackgroundGranularity",str(background["granularity"])]
+   if not background["smoothed_input"]:cmd.append("-NoSmoothedBackground")
+  else:cmd.append("-UseAvailableBackground")
   job=subprocess.run(cmd,capture_output=True,text=True,errors="replace")
   if job.returncode:
    raise RuntimeError("Native stage failed. Stop new jobs; internal diagnostics: "+str(directory)+"\n"+job.stderr[-2000:])
   status=json.loads(job.stdout.lstrip("\ufeff"))
   output=Path(status["OutputFile"]);solved=HPF(output);identity(solved,origin,data)
-  verify_base(solved)
+  verify_base(solved,data)
+  if not estimate:
+   import numpy as np
+   if not np.array_equal(doc.scan()[:,2],solved.scan()[:,2]):raise ValueError("Native solve changed the operator's available background curve.")
   verify_standard(data,solved)
   if solved.metrics() is None or status["SolverParameterCounts"]!=[solved.independent_count()]:
    raise ValueError("Native metrics or log/HPF parameter-count verification failed.")
@@ -208,19 +263,21 @@ def action(args,data):
   if not args.previous:raise ValueError("--previous is required.")
   previous=HPF(args.previous);identity(previous,origin,data)
   verify_standard(data,previous);verify_standard(data,doc)
-  result={"stability":stability(previous,doc),"previous":previous.info(),"current":doc.info(),
+  result={"stability":stability(previous,doc,data),"previous":previous.info(),"current":doc.info(),
           "free_parameters":[p for p in doc.public_parameters() if p["free"]]}
  elif args.action=="deliver":
   if not args.previous:raise ValueError("Supply the last same-model comparison before delivery.")
   previous=HPF(args.previous);identity(previous,origin,data)
   verify_standard(data,previous);verify_standard(data,doc)
-  checked=stability(previous,doc)
+  checked=stability(previous,doc,data)
   if sha(origin)!=digest:raise ValueError("Original source changed before delivery.")
   target=deliver(source,origin,checked["stable"],args.output)
   result={"file":str(target),"stability":checked,"info":doc.info(),"original_unchanged":True,
           "phase_model_validated":False,"documents_generated":False}
  else:raise ValueError(args.action)
  if sha(origin)!=digest:raise ValueError("Original source changed during this action.")
+ result["confirmed_settings"]=data["settings_confirmation"]
+ result["quantification_scope"]=data["quantification_confirmation"]
  return result
 
 def main():

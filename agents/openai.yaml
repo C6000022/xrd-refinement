@@ -1,6 +1,6 @@
 interface:
   display_name: "XRD 精修"
-  short_description: "先确认内标种类、含量及 CIF，统一基础设置自主精修，Refined 子文件夹保存 HPF"
-  default_prompt: "使用 $xrd-refinement 精修我提供的 HighScore 工程；先询问内标物质、加入量及质量基准，并确认 CIF 已导入齐全，保持背景和基础计算设置一致，再按实际数据自主选择精修策略，在原 HPF 文件夹下的 Refined 子文件夹保存 HPF，并在聊天汇报。"
+  short_description: "先确认背景、定量目标、内标与质量基准及CIF，按本次设置精修并保存到Refined"
+  default_prompt: "使用 $xrd-refinement 精修我提供的 HighScore 工程；先向操作人确认背景方式和参数、定量目标和方式、结果质量基准、内标物质和加入量、计算设置及 CIF 完整性，锁定本次设置，再按实际数据自主选择精修策略，在原 HPF 文件夹下的 Refined 子文件夹保存 HPF，并在聊天汇报。"
 policy:
   allow_implicit_invocation: true

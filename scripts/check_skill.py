@@ -89,14 +89,36 @@ def check_models(root,synthetic_only=False):
   struct.pack_into("<I",mismatched,first.global_offset+250,20)
   struct.pack_into("<d",mismatched,first.global_offset+278,4)
   struct.pack_into("<I",mismatched,first.background_method_offset,0)
+  for i in range(first.point_count):struct.pack_into("<d",mismatched,first.scan_offset+i*66+28,100.0)
   HPF(raw=mismatched).save(source)
   data={"confirmation":{"confirmed":True,"user_statement":"synthetic local test; no solver executes","projects":{str(source):tools.sha(source)}},
         "standard_confirmation":{"confirmed":True,"user_statement":"synthetic test: no standard added", "source_sha256":tools.sha(source),"added":False,"weights":[]},
+        "settings_confirmation":{"confirmed":True,"user_statement":"synthetic confirmation of background and computation", "source_sha256":tools.sha(source),
+          "background":{"mode":"automatic","handling":"model_background","bending_factor":2,"granularity":20,"smoothed_input":True},
+          "computation":{"max_cycles":100,"profile_base_width":12}},
+        "quantification_confirmation":{"confirmed":True,"user_statement":"synthetic confirmation of target and basis", "source_sha256":tools.sha(source),
+          "mode":"relative_crystalline","target_phases":[first.phase_keys[-1]],"report_basis":"crystalline_only","include_unquantified_fraction":False},
         "plan":{"reason":"isolated test of arbitrary parameter selection","refine":["Zero Shift [°2Theta]"],"use_available_background":True}}
   args=SimpleNamespace(action="prepare",input=str(source),origin=None)
   fail(lambda:tools.action(args,{}))
-  missing_standard={k:v for k,v in data.items() if k!="standard_confirmation"}
-  fail(lambda:tools.action(args,missing_standard))
+  for record in ("standard_confirmation","settings_confirmation","quantification_confirmation"):
+   missing={k:v for k,v in data.items() if k!=record}
+   fail(lambda:tools.action(args,missing))
+  for record in ("settings_confirmation","quantification_confirmation"):
+   for field,value in (("confirmed",False),("user_statement",""),("source_sha256","wrong source")):
+    invalid=json.loads(json.dumps(data));invalid[record][field]=value
+    fail(lambda:tools.action(args,invalid))
+  for field,value in (("bending_factor",101),("granularity",0),("smoothed_input",None),("handling","subtract"),("mode","polynomial")):
+   invalid=json.loads(json.dumps(data));invalid["settings_confirmation"]["background"][field]=value
+   fail(lambda:tools.action(args,invalid))
+  for section,field,value in (("background","unknown_option",True),("computation","refine",[]),("computation","max_cycles",True),("computation","profile_base_width",float("inf"))):
+   invalid=json.loads(json.dumps(data));invalid["settings_confirmation"][section][field]=value
+   fail(lambda:tools.action(args,invalid))
+  missing=json.loads(json.dumps(data));missing["settings_confirmation"]["computation"].pop("profile_base_width")
+  fail(lambda:tools.action(args,missing))
+  for field,value in (("target_phases",[]),("target_phases",["missing target"]),("report_basis","original_sample"),("include_unquantified_fraction",True),("mode","external_standard")):
+   invalid=json.loads(json.dumps(data));invalid["quantification_confirmation"][field]=value
+   fail(lambda:tools.action(args,invalid))
   for field,value in (("confirmed",False),("user_statement",""),("source_sha256","stale hash"),("added",None)):
    invalid=json.loads(json.dumps(data));invalid["standard_confirmation"][field]=value
    fail(lambda:tools.action(args,invalid))
@@ -107,6 +129,7 @@ def check_models(root,synthetic_only=False):
   standard_plan["plan"]["standard_weights"]=[{"phase":first.phase_keys[0],"mixed_mass_pct":20}]
   fail(lambda:tools.action(args,standard_plan))
   standard_plan["standard_confirmation"]={"confirmed":True,"user_statement":"synthetic mass-basis confirmation","source_sha256":tools.sha(source),"added":True,"mass_basis":"mixed_total_mass","weights":standard_plan["plan"]["standard_weights"]}
+  standard_plan["quantification_confirmation"].update(mode="internal_standard",report_basis="original_sample",include_unquantified_fraction=True)
   wrong_basis=json.loads(json.dumps(standard_plan));wrong_basis["standard_confirmation"]["mass_basis"]="original_sample_mass"
   fail(lambda:tools.action(args,wrong_basis))
   wrong_phase=json.loads(json.dumps(standard_plan));wrong_phase["standard_confirmation"]["weights"][0]["phase"]="missing structure"
@@ -130,7 +153,7 @@ def check_models(root,synthetic_only=False):
   assert HPF(prepared["prepared_input"]).independent_count()==1
   prepared_doc=HPF(prepared["prepared_input"])
   assert prepared_doc.scan_sha256()==first.scan_sha256()
-  tools.verify_base(prepared_doc)
+  tools.verify_base(prepared_doc,data)
   tools.verify_standard(data,prepared_doc)
   assert all(w["internal_standard_pct"]==-1 for w in prepared_doc.phase_weights())
   assert HPF(source).phase_weights()==first.phase_weights()
@@ -153,9 +176,37 @@ def check_models(root,synthetic_only=False):
    conflicting=json.loads(json.dumps(standard_plan));conflicting.pop("plan")
    fail(lambda:tools.action(solve_args,conflicting))
    assert native.call_count==0
+  custom=json.loads(json.dumps(data))
+  custom["settings_confirmation"]["background"].update(bending_factor=5,granularity=30,smoothed_input=False)
+  custom["settings_confirmation"]["computation"].update(max_cycles=180,profile_base_width=16)
+  custom_stage=tools.action(args,custom);custom_doc=HPF(custom_stage["prepared_input"])
+  assert custom_doc.info()["max_cycles"]==180 and custom_doc.info()["profile_base_width"]==16
+  custom_args=SimpleNamespace(**{**vars(solve_args),"input":custom_stage["prepared_input"]})
+  with patch.object(tools.subprocess,"run",side_effect=RuntimeError("Native execution intentionally disabled")) as native:
+   fail(lambda:tools.action(custom_args,custom));assert native.call_count==1
+   cmd=native.call_args.args[0]
+   assert cmd[cmd.index("-BackgroundBendingFactor")+1]=="5" and cmd[cmd.index("-BackgroundGranularity")+1]=="30"
+   assert "-NoSmoothedBackground" in cmd
+  custom_work=Path(custom_stage["work_directory"])
+  assert custom_work.is_relative_to(Path(tempfile.gettempdir()).resolve()) and custom_work.name.startswith("codex_xrd_step_")
+  shutil.rmtree(custom_work)
+  available=json.loads(json.dumps(data));available["settings_confirmation"]["background"]={"mode":"available","handling":"model_background"}
+  available_stage=tools.action(args,available);available_doc=HPF(available_stage["prepared_input"])
+  assert not available_stage["background_should_be_estimated"]
+  assert np.array_equal(available_doc.scan()[:,2],HPF(source).scan()[:,2])
+  available_args=SimpleNamespace(**{**vars(solve_args),"input":available_stage["prepared_input"],"background_template":""})
+  with patch.object(tools.subprocess,"run",side_effect=RuntimeError("Native execution intentionally disabled")) as native:
+   fail(lambda:tools.action(available_args,available));assert native.call_count==1
+   cmd=native.call_args.args[0]
+   assert "-UseAvailableBackground" in cmd and "-EstimateBackground" not in cmd and "-BackgroundBendingFactor" not in cmd
+   native.reset_mock();available_args.estimate_background=True
+   fail(lambda:tools.action(available_args,available));assert native.call_count==0
+  available_work=Path(available_stage["work_directory"])
+  assert available_work.is_relative_to(Path(tempfile.gettempdir()).resolve()) and available_work.name.startswith("codex_xrd_step_")
+  shutil.rmtree(available_work)
   changed_background=bytearray(prepared_doc.raw)
   struct.pack_into("<d",changed_background,prepared_doc.scan_offset+28,prepared_doc.scan()[0,2]+1)
-  assert not tools.stability(prepared_doc,HPF(raw=changed_background))["stable"]
+  assert not tools.stability(prepared_doc,HPF(raw=changed_background),data)["stable"]
   other=temp/"native_output.HPF";HPF(prepared["prepared_input"]).save(other)
   before={p.relative_to(temp) for p in temp.rglob("*")}
   a=tools.deliver(other,source,True);a_hash=tools.sha(a)
@@ -169,15 +220,15 @@ def check_models(root,synthetic_only=False):
   import shutil;shutil.rmtree(work)
  for p,digest in original_hashes.items():assert tools.sha(p)==digest
  profile=json.loads((tools.SKILL/"references/local-profile.json").read_text(encoding="utf-8"))
- assert profile["background_starting_profile"]["bending_factor"]==2
- assert profile["background_starting_profile"]["granularity"]==20
- assert profile["background_starting_profile"]["smoothed_input"] is True
+ assert profile["suggested_background_profile"]["bending_factor"]==2
+ assert profile["suggested_background_profile"]["granularity"]==20
+ assert profile["suggested_background_profile"]["smoothed_input"] is True
  print(json.dumps({"models_read":records,"synthetic_only":synthetic_only,"variable_grid_wavelength_labels_and_3_phase_count_synthetic_check":True,
                    "arbitrary_3_and_1_parameter_preparation":True,"CIF_gate":True,"mandatory_current_standard_gate":True,
                    "no_standard_clears_stale_tags_and_positive_standard_sets_actual_phase":True,
                    "refined_subfolder_HPF_only_and_no_overwrite":True,"no_native_solver_launched":True,
-                   "originals_unchanged":True,"background_defaults":"2/20/smoothed",
-                   "fixed_base_preparation_and_conflict_rejection":True,"mandatory_fixed_background_dispatch":True,
+                   "originals_unchanged":True,"background_suggestion_requires_confirmation":"2/20/smoothed",
+                   "confirmed_base_preparation_and_conflict_rejection":True,"operator_confirmed_custom_background_and_computation":True,"available_background_preserved":True,"quantification_gate":True,
                    "different_background_not_same_model_stability":True},ensure_ascii=False,indent=2))
 def main():
  p=argparse.ArgumentParser(description=__doc__)

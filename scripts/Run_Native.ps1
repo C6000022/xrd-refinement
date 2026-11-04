@@ -4,17 +4,19 @@ param(
  [int]$ExpectedParameters = -1,
  [Parameter(Mandatory=$true)][string]$HighScoreExe,
  [Parameter(Mandatory=$true)][string]$BatchTemplateName,
- [string]$BackgroundTemplateName = '', 
+ [string]$BackgroundTemplateName = '',
  [switch]$EstimateBackground,
- [ValidateRange(0,100)][int]$BackgroundBendingFactor = 2,
- [ValidateRange(1,10000)][int]$BackgroundGranularity = 20,
+ [switch]$UseAvailableBackground,
+ [ValidateRange(-1,100)][int]$BackgroundBendingFactor = -1,
+ [ValidateRange(-1,10000)][int]$BackgroundGranularity = -1,
  [switch]$NoSmoothedBackground,
  [switch]$NormalizeOnly,
  [int]$TimeoutSeconds = 180
 )
 $ErrorActionPreference='Stop'
-if ($BackgroundBendingFactor -ne 2 -or $BackgroundGranularity -ne 20 -or $NoSmoothedBackground) {throw 'The user requires fixed background settings: 2/20/smoothed.'}
-if (-not $NormalizeOnly) {$EstimateBackground=$true}
+if (-not $NormalizeOnly -and ([bool]$EstimateBackground -eq [bool]$UseAvailableBackground)) {throw 'Select exactly one operator-confirmed background mode.'}
+if ($NormalizeOnly -and ($EstimateBackground -or $UseAvailableBackground)) {throw 'Normalization must not alter or select a background.'}
+if ($EstimateBackground -and ($BackgroundBendingFactor -lt 0 -or $BackgroundGranularity -lt 1)) {throw 'Provide explicit operator-confirmed automatic-background parameters.'}
 $hsInput=(Resolve-Path -LiteralPath $InputFile).Path
 $hsExe=(Resolve-Path -LiteralPath $HighScoreExe).Path
 $hsStage=Split-Path -Parent $hsInput
@@ -42,7 +44,7 @@ try {
   $hsBgParts=(Get-ItemPropertyValue -LiteralPath $hsBgReg -Name $BackgroundTemplateName).Split(';')
   if ($hsBgParts.Count -ne 13 -or $hsBgParts[2] -ne '0' -or $hsBgParts[3] -ne '-5' -or $hsBgParts[4] -ne '0') {throw 'Background preset format changed; inspect the native UI before editing.'}
   if (($hsBgParts[6..9] -join ';') -ne '0.7;0;1;2') {throw 'Background preset ancillary fields changed; verify Accept / Add to net scan=Nothing in the native UI.'}
-  $hsBgParts[5]='2';$hsBgParts[10]='1';$hsBgParts[11]='20' 
+  $hsBgParts[5]=[string]$BackgroundBendingFactor;$hsBgParts[10]=[string][int](-not $NoSmoothedBackground);$hsBgParts[11]=[string]$BackgroundGranularity
   $hsBackgroundProfile=$hsBgParts -join ';'
   $hsBackgroundName='Codex_XRD_BG_'+[Guid]::NewGuid().ToString('N')
   New-ItemProperty -LiteralPath $hsBgReg -Name $hsBackgroundName -PropertyType String -Value $hsBackgroundProfile | Out-Null

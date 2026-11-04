@@ -1,10 +1,10 @@
 # XRD Refinement Skill
 
-**v0.1.0-alpha.1 — experimental / 公开测试版**
+**v0.1.0-alpha.2 — experimental / 公开测试版**
 
-A Codex skill for supervised, local Rietveld refinement of existing HighScore Plus projects. It confirms the internal standard and CIF completeness, keeps a consistent background/computation baseline, chooses refinement parameters from the actual model, and saves HPF results under `Refined/`.
+A Codex skill for supervised, local Rietveld refinement of existing HighScore Plus projects. It confirms the operator's background settings, target phases, quantification method and mass basis, internal standard and CIF completeness, then locks those settings for the task, chooses refinement parameters from the actual model, and saves HPF results under `Refined/`.
 
-用于在Windows上调用HighScore进行XRD精修。使用者提供已经包含实测扫描与拟合晶体结构的HPF；正式操作前确认内标种类、加入量及质量基准，以及所需CIF是否已全部导入。结果默认仅交付HPF，结论在聊天中汇报。
+用于在Windows上调用HighScore进行XRD精修。使用者提供已经包含实测扫描与拟合晶体结构的HPF；正式操作前必须向操作人确认背景方式与参数、目标晶相、定量方式及报告质量基准、内标种类与加入量、计算设置及CIF完整性；不能直接套用作者个人参数。结果默认仅交付HPF，结论在聊天中汇报。
 
 This package contains instructions and helper scripts. It does not include HighScore, a commercial crystal database, instrument calibration, private measurements, or a cloud refinement service.
 
@@ -35,9 +35,9 @@ You can also ask Codex's skill installer to install from this GitHub repository.
 
 The public copy contains no author-specific executable paths or private registry exports. Users must configure their own installed software and **native presets saved through HighScore**:
 
-1. In HighScore, save an automatic background preset with smoothed input and `Add to net scan = Nothing`. The launcher derives a unique temporary preset and enforces Bending factor 2 / Granularity 20 / smoothed input on that copy. Unrecognized ancillary fields are rejected.
+1. For automatic-background tasks, save a native automatic background preset with `Add to net scan = Nothing`. The launcher derives a unique temporary preset and writes the bending factor, granularity and smoothing choice explicitly confirmed by the operator. Unrecognized ancillary fields are rejected. Available-background mode preserves the existing curve and does not need a background preset.
 2. Save a native user batch containing the background-determination action. The launcher validates and uses the native serialization header; it replaces the actions in a temporary batch with a controlled solve/save sequence. Normalization uses save only.
-3. Set the executable path and the actual saved preset names. The following values are examples to replace with your own:
+3. Set the executable path and the actual saved preset names (XRD_BACKGROUND_TEMPLATE is needed only for automatic estimation). The following values are examples to replace with your own:
 
 ```powershell
 $env:XRD_HIGHSCORE_EXE = "C:\Program Files\PANalytical\X'Pert HighScore Plus\HighScorePlus.exe"
@@ -59,7 +59,7 @@ In Codex, say for example:
 xrd精修 C:\XRD\sample.HPF。内标是刚玉，占混合后总质量的10%。
 ```
 
-Codex reads the actual phases and asks whether all intended CIF structures, including the internal-standard structure, are imported. It asks for missing standard identity/amount/mass basis, then operates on temporary copies after explicit answers. An explicit "no internal standard" is valid; results then describe relative crystalline composition and must not claim absolute amorphous content.
+Codex reads the actual phases and asks the required pre-refinement questions below. A standard amount alone is not enough to start. It then operates on temporary copies after the operator has explicitly answered all applicable questions. It reuses complete answers within the same unchanged task rather than repeating them every refinement cycle. An explicit "no internal standard" is valid; results then describe relative crystalline composition and must not claim absolute amorphous content.
 
 Internal-standard percentages use:
 
@@ -76,20 +76,34 @@ C:\XRD\Refined\sample_refined.HPF
 
 `Refined` is created when needed. Existing originals and result files are not overwritten. Numerically unconverged candidates use `_candidate_unconverged.HPF`; duplicate result names receive a timestamp/number. Reports, tables and plots are not generated unless requested.
 
-## Fixed comparison baseline
+## Mandatory operator confirmation before refinement
 
-| Setting | Value |
+The public version fixes the **questions and within-task consistency**, not universal scientific parameter values. Missing answers block preparation and native solving. Only read-only inspection and save-only normalization may precede confirmation. Existing project values and suggestions are shown as context; neither counts as the operator's answer.
+
+| Confirm with the operator | Required information |
 |---|---|
-| Background | Automatic / Sonneveld–Visser |
-| Bending factor / Granularity | 2 / 20 |
-| Smoothed input | Enabled for background estimation only |
-| Background handling | Accept, no Subtract; Add to net scan = Nothing |
-| Rietveld background | Use available background; coefficients fixed |
-| Refinement mode | Semi-automatic |
-| Profile Base Width | 12 FWHM |
-| Maximum least-squares cycles | 100 |
+| Background treatment | Re-estimate automatic background or reuse the accepted project curve? Automatic mode requires bending factor, granularity and smoothing choice. |
+| Background handling | Accept/include background in the model, preserve observed counts, no Subtract, Add to net scan = Nothing. Other processing needs a separately validated native workflow. |
+| Quantification target | Actual phase names or all sample phases; whether an unquantified/amorphous fraction is requested. |
+| Quantification method | Relative crystalline composition or internal-standard quantification. Other methods are not silently mapped to either. |
+| Internal standard | Material/structure, actual known added percentage and its denominator, or the two weighed masses; explicit no-standard is valid. |
+| Reporting mass basis | Crystalline-only normalization, mixed specimen including added standard, or original specimen excluding the added standard (As received), as appropriate to the chosen method. |
+| Computation settings | Profile base width and maximum least-squares cycles for this task. |
+| CIF completeness | All intended structures, including the standard, have been imported. |
 
-This is a reproducible workflow baseline, not evidence that these values are optimal for every material. The agent must not change this baseline silently. Radiation, scan range, step and phase inventory come from each project; refined values from another sample are not copied. Refinement strategy is selected from residual evidence, without a mandatory 7/14/15-parameter sequence.
+Chinese first-run questions:
+
+1. **本次背景采用自动重新估计，还是沿用工程已接受的背景？** 自动背景的Bending factor、Granularity、是否使用平滑输入分别是什么？确认Accept后纳入模型，保留原始强度。
+2. **要定量哪些晶相？采用晶相相对定量还是内标法？是否需要非晶/未定量余量？**
+3. **内标是什么，加入多少？百分比按混合后总质量还是原样质量？** 也可给出称量质量，或明确未加内标。
+4. **结果按含内标混合物，还是扣除内标后的原样报告？** 相对定量则明确样品晶相归一化基准。
+5. **本次峰形计算宽度（Profile Base Width，FWHM单位）和循环上限采用什么值？所需CIF是否全部导入？**
+
+Automatic 2/20/smoothed, 12 FWHM and 100 cycles may be offered as suggestions, but are used only after explicit acceptance. A custom confirmed choice (for example 5/30/no smoothing) must be respected. Accepted settings stay fixed within that task; changes require renewed confirmation. Quantification target percentages are computed outputs, not desired values to enter before refinement.
+
+The helper enforces operator-confirmed settings and rejects conflicting plans. It uses semi-automatic mode and an accepted background curve. For automatic mode it estimates that curve with the confirmed parameters before each solve. Available mode does not re-estimate it, rejects an estimate flag, and checks the curve remains unchanged. Unsupported background algorithms or actual subtraction are not claimed implemented.
+
+Requests carry `settings_confirmation`, `quantification_confirmation`, `standard_confirmation` and CIF `confirmation`, tied to the original file hash. The exact schema is in [SKILL.md](SKILL.md). `quantification_scope` in a helper result records the requested output, not proof that the native display basis was changed or mass fractions converted. The agent must verify the appropriate native quantification fields before reporting. Selecting target phases changes the reporting scope, not the complete phase model or the crystalline normalization denominator.
 
 ## Helper commands and checks
 
